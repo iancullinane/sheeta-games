@@ -1,39 +1,61 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
 // import { SheetaBackendStack } from '../lib/sheeta-backend-stack';
-import { SheetaGames } from '../lib/sheeta-games-stack';
-import { ProjectCertsStack } from "../lib/networking/cert"
+
+import { Foundation } from '../lib/foundation';
+import { LambdaEndpoint } from '../lib/lambda-endpoint';
+import { SecureGatewayEndpointStack } from '../lib/secure-gateway-endpoint';
+
+var mainConfig = {
+  "name": "sheeta",
+  "network": {
+    "domains": [
+      {
+        "name": "sheeta.cloud"
+      }
+    ]
+  }
+}
+
 
 const app = new cdk.App();
 
+const defaultTags = {
+  Environment: 'dev',
+  Project: 'sheeta',
+};
 
-new ProjectCertsStack(app, 'ProjectCertsStack',{
-  env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: process.env.CDK_DEFAULT_REGION
-  }  
-})
+// These tags will be inherited by all child stacks and constructs
+// To use them in Foundation.ts or other stacks, you can access them with:
+// cdk.Tags.of(scope).tagValues('Environment') 
+// cdk.Tags.of(scope).tagValues('Project')
+cdk.Tags.of(app).add('Environment', defaultTags.Environment);
+cdk.Tags.of(app).add('Project', defaultTags.Project);
 
-
-new SheetaGames(app, 'SheetaGamesStack', {
-  bucketName: "sheeta-games-source",
-  functionName: "sheeta-games-function",
+var foundation = new Foundation(app, 'FoundationStack', {
+  network: mainConfig.network,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION
   }
+});
 
-  /* If you don't specify 'env', this stack will be environment-agnostic.
-   * Account/Region-dependent features and context lookups will not work,
-   * but a single synthesized template can be deployed anywhere. */
 
-  /* Uncomment the next line to specialize this stack for the AWS Account
-   * and Region that are implied by the current CLI configuration. */
-  // env: { account: process.env.CDK_DEFAULT_ACCOUNT, region: process.env.CDK_DEFAULT_REGION },
 
-  /* Uncomment the next line if you know exactly what Account and Region you
-   * want to deploy the stack to. */
-  // env: { account: '123456789012', region: 'us-east-1' },
+// new SecureGatewayEndpointStack(app, 'SecureGatewayEndpoint-Sheeta', {
+//   projectName: mainConfig.name,
+//   hostedZone: foundation.hostedZones.get(mainConfig.network.domains[0].name),
+//   env: {
+//     account: process.env.CDK_DEFAULT_ACCOUNT,
+//     region: process.env.CDK_DEFAULT_REGION
+//   }
+// });
 
-  /* For more information, see https://docs.aws.amazon.com/cdk/latest/guide/environments.html */
+new LambdaEndpoint(app, 'SheetaGamesStack', {
+  projectName: mainConfig.name,
+  domain: foundation.hostedZones.get(mainConfig.network.domains[0].name),
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION
+  }
 });

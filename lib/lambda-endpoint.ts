@@ -7,28 +7,29 @@ import { Construct } from "constructs"
 import * as cdk from 'aws-cdk-lib';
 import { ApiGatewayToCloudwatchLogs } from './roles/ApiGatewayToCloudwatchLogs'
 import { SheetaNetwork } from "./networking/sheeta-network"
+import * as route53 from "aws-cdk-lib/aws-route53"
 
 
-interface SheetaGamesProps extends StackProps {
-    functionName: string
-    bucketName: string
+interface LambdaEndpointProps extends StackProps {
+    projectName: string
+    domain?: route53.IHostedZone
 }
 
-export class SheetaGames extends Stack {
+export class LambdaEndpoint extends Stack {
     private restApi: RestApi
     private lambdaFunction: Function
     private bucket: s3.Bucket
 
-    constructor(scope: Construct, id: string, props: SheetaGamesProps) {
+    constructor(scope: Construct, id: string, props: LambdaEndpointProps) {
         super(scope, id, props)
-        
 
-        
+
+
         new SheetaNetwork(this, 'SheetaNetwork', {
             domainName: 'sheeta.cloud'
         })
 
-        this.bucket = new s3.Bucket(this, props.bucketName)
+        this.bucket = new s3.Bucket(this, `${props.projectName}-initial-bucket`)
 
         // Create the CloudWatch Logs role
         new ApiGatewayToCloudwatchLogs(this, 'ApiGatewayCloudWatchRole')

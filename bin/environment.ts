@@ -6,6 +6,7 @@ import { Foundation } from "../lib/foundation";
 import { LambdaEndpoint } from "../lib/lambda-endpoint";
 import { SecureGatewayEndpointStack } from "../lib/secure-gateway-endpoint";
 import { GodotAssetsStack } from "../lib/storage/godot-assets-stack";
+import { SheetaComputeStack } from "../lib/compute/sheeta-compute-stack";
 
 var mainConfig = {
   name: "adventurebrave",
@@ -51,6 +52,14 @@ new LambdaEndpoint(app, "SheetaGamesStack", {
   },
 });
 
+
+
+// 
+
+
+
+
+
 // Option 2: Use the new domainName parameter to look up the hosted zone
 // This approach doesn't require the Foundation stack reference
 /*
@@ -66,6 +75,15 @@ new LambdaEndpoint(app, "SheetaGamesEndpoint", {
 
 // Add Godot assets storage stack
 new GodotAssetsStack(app, "GodotAssetsStack", {
+  projectName: mainConfig.name,
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION,
+  },
+});
+
+// Add compute stack with ALB and EC2
+new SheetaComputeStack(app, "SheetaComputeStack", {
   projectName: mainConfig.name,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,

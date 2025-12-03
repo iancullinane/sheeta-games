@@ -3,8 +3,8 @@ import * as cdk from "aws-cdk-lib";
 // import { SheetaBackendStack } from '../lib/sheeta-backend-stack';
 
 import { Foundation } from "../lib/foundation";
-import { LambdaEndpoint } from "../lib/lambda-endpoint";
-import { SecureGatewayEndpointStack } from "../lib/secure-gateway-endpoint";
+import { ApiGatewayFoundation } from "../lib/networking/api-gateway-foundation";
+import { LambdaEndpoint } from "../lib/api/lambda-endpoint";
 import { GodotAssetsStack } from "../lib/storage/godot-assets-stack";
 import { SheetaComputeStack } from "../lib/compute/sheeta-compute-stack";
 
@@ -34,7 +34,7 @@ cdk.Tags.of(app).add("Environment", defaultTags.Environment);
 cdk.Tags.of(app).add("Project", defaultTags.Project);
 
 // Setup initial environment config and so on
-var foundation = new Foundation(app, "FoundationStack", {
+const foundation = new Foundation(app, "FoundationStack", {
   network: mainConfig.network,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -42,10 +42,20 @@ var foundation = new Foundation(app, "FoundationStack", {
   },
 });
 
-// Option 1: Get hosted zone directly by name (more reliable than index-based access)
+// Create shared API Gateway that other stacks can use
+const apiGateway = new ApiGatewayFoundation(app, "ApiGatewayFoundation", {
+  projectName: mainConfig.name,
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION,
+  },
+});
+
+// Lambda endpoint using shared API Gateway
 new LambdaEndpoint(app, "SheetaGamesStack", {
   projectName: mainConfig.name,
-  domain: foundation.hostedZones.get("adventurebrave.com"), // Use explicit domain name
+  restApi: apiGateway.restApi,
+  routePath: "/hello",
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,

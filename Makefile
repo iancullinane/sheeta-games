@@ -1,3 +1,5 @@
+# This makefile is strictly for building the Go application
+
 .PHONY: build clean
 
 build:

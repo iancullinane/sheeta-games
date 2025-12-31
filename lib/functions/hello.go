@@ -1,8 +1,11 @@
+//go:build lambda
+// +build lambda
+
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
@@ -14,24 +17,8 @@ import (
 	"github.com/iancullinane/prisoner/pkg/prisoner"
 )
 
-type Response struct {
-	PlayerMove    string `json:"playerMove"`
-	ComputerMove  string `json:"computerMove"`
-	PlayerScore   int32  `json:"playerScore"`
-	ComputerScore int32  `json:"computerScore"`
-	Message       string `json:"message"`
-}
-
-// Helper function to generate random move for computer
-func randomMove() string {
-	rand.Seed(time.Now().UnixNano())
-	if rand.Float32() < 0.5 {
-		return "COOPERATE"
-	}
-	return "CHEAT"
-}
-
 func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	rand.Seed(time.Now().UnixNano())
 	log.Printf("Processing Lambda request %s\n", request.RequestContext.RequestID)
 
 	// Get player's move from query parameter
@@ -74,21 +61,23 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		Message:       message,
 	}
 
-	body, err := json.Marshal(response)
+	// Render HTML using templ
+	var buf bytes.Buffer
+	err := GamePage(response).Render(ctx, &buf)
 	if err != nil {
-		log.Printf("Error marshaling response: %v\n", err)
+		log.Printf("Error rendering template: %v\n", err)
 		return events.APIGatewayProxyResponse{
 			StatusCode: 500,
-			Body:       "Error generating response",
+			Body:       "Error generating HTML",
 		}, nil
 	}
 
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
 		Headers: map[string]string{
-			"Content-Type": "application/json",
+			"Content-Type": "text/html",
 		},
-		Body: string(body),
+		Body: buf.String(),
 	}, nil
 }
 

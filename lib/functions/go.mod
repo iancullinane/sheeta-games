@@ -4,7 +4,7 @@ go 1.23.3
 
 require github.com/aws/aws-lambda-go v1.47.0
 
-require github.com/a-h/templ v0.3.960
+require github.com/stretchr/testify v1.10.0 // indirect
 
 require (
 	github.com/Pallinder/go-randomdata v1.2.0 // indirect

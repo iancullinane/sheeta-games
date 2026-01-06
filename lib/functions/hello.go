@@ -4,10 +4,9 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"log"
 	"math/rand"
 	"strings"
 	"time"
@@ -17,21 +16,31 @@ import (
 	"github.com/iancullinane/prisoner/pkg/prisoner"
 )
 
-func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	rand.Seed(time.Now().UnixNano())
-	log.Printf("Processing Lambda request %s\n", request.RequestContext.RequestID)
+type Response struct {
+	PlayerMove    string `json:"playerMove"`
+	ComputerMove  string `json:"computerMove"`
+	PlayerScore   int32  `json:"playerScore"`
+	ComputerScore int32  `json:"computerScore"`
+	Message       string `json:"message"`
+}
 
-	// Get player's move from query parameter
+func randomMove() string {
+	if rand.Float32() < 0.5 {
+		return "COOPERATE"
+	}
+	return "CHEAT"
+}
+
+func Handler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	rand.Seed(time.Now().UnixNano())
+
 	playerMove := request.QueryStringParameters["move"]
 	if playerMove == "" {
-		// Default to COOPERATE if no move is specified
 		playerMove = "COOPERATE"
 	}
 
-	// Normalize input to uppercase
 	playerMove = strings.ToUpper(playerMove)
 
-	// Validate input
 	if playerMove != "COOPERATE" && playerMove != "CHEAT" {
 		return events.APIGatewayProxyResponse{
 			StatusCode: 400,
@@ -42,14 +51,11 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		}, nil
 	}
 
-	// Generate random move for computer
 	computerMove := randomMove()
 
-	// Calculate results
 	p := prisoner.New()
 	playerScore, computerScore := p.Compute(playerMove, computerMove)
 
-	// Create response
 	message := fmt.Sprintf("You chose %s, computer chose %s. Your score: %d, Computer score: %d",
 		playerMove, computerMove, playerScore, computerScore)
 
@@ -61,26 +67,17 @@ func handler(ctx context.Context, request events.APIGatewayProxyRequest) (events
 		Message:       message,
 	}
 
-	// Render HTML using templ
-	var buf bytes.Buffer
-	err := GamePage(response).Render(ctx, &buf)
-	if err != nil {
-		log.Printf("Error rendering template: %v\n", err)
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Body:       "Error generating HTML",
-		}, nil
-	}
+	body, _ := json.Marshal(response)
 
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
 		Headers: map[string]string{
-			"Content-Type": "text/html",
+			"Content-Type": "application/json",
 		},
-		Body: buf.String(),
+		Body: string(body),
 	}, nil
 }
 
 func main() {
-	lambda.Start(handler)
+	lambda.Start(Handler)
 }

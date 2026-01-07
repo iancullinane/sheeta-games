@@ -1,3 +1,6 @@
+# github.com/Pallinder/go-randomdata v1.2.0
+## explicit
+github.com/Pallinder/go-randomdata
 # github.com/aws/aws-lambda-go v1.47.0
 ## explicit; go 1.18
 github.com/aws/aws-lambda-go/events
@@ -5,3 +8,11 @@ github.com/aws/aws-lambda-go/lambda
 github.com/aws/aws-lambda-go/lambda/handlertrace
 github.com/aws/aws-lambda-go/lambda/messages
 github.com/aws/aws-lambda-go/lambdacontext
+# github.com/iancullinane/prisoner v0.0.0-20250530210418-c35995e1a108
+## explicit; go 1.15
+github.com/iancullinane/prisoner/internal/dilemma
+github.com/iancullinane/prisoner/internal/entity
+github.com/iancullinane/prisoner/internal/utils
+github.com/iancullinane/prisoner/pkg/prisoner
+# github.com/stretchr/testify v1.10.0
+## explicit; go 1.17

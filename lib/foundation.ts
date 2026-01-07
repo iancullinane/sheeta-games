@@ -1,75 +1,98 @@
-import { CfnOutput, Fn, Stack, StackProps, Tags } from "aws-cdk-lib"
-import { Construct } from "constructs"
-import * as route53 from "aws-cdk-lib/aws-route53"
-import * as ssm from "aws-cdk-lib/aws-ssm"
+import { CfnOutput, Fn, Stack, StackProps, Tags } from "aws-cdk-lib";
+import { Construct } from "constructs";
+import * as route53 from "aws-cdk-lib/aws-route53";
+import * as ssm from "aws-cdk-lib/aws-ssm";
+import * as iam from "aws-cdk-lib/aws-iam";
+import { KnowledgeBaseStorage } from "./storage/kb-storage";
+import { Oracle } from "./oracle/oracle";
 
 interface Domain {
-    name: string
+  name: string;
 }
 
 interface NetworkConfig {
-    domains: Domain[]
+  domains: Domain[];
 }
 
 interface FoundationProps extends StackProps {
-    network: NetworkConfig
+  network: NetworkConfig;
 }
 
+// At this point we will setup hosted zones as well as an S3 bucket
+// expressly to hold knowledge base data
 export class Foundation extends Stack {
-    public readonly hostedZones: Map<string, route53.IHostedZone> = new Map()
+  public readonly hostedZones: Map<string, route53.IHostedZone> = new Map();
+  public readonly kbStorage: KnowledgeBaseStorage;
+  public readonly oracle: Oracle;
 
-    constructor(scope: Construct, id: string, props: FoundationProps) {
-        super(scope, id, props)
+  constructor(scope: Construct, id: string, props: FoundationProps) {
+    super(scope, id, props);
 
-        // Create hosted zones for each domain
-        for (const domain of props.network.domains) {
-            const hostedZone = new route53.HostedZone(this, `${domain.name}-zone`, {
-                zoneName: domain.name
-            })
-            this.hostedZones.set(domain.name, hostedZone)
+    // Create hosted zones for each domain
+    for (const domain of props.network.domains) {
+      const hostedZone = new route53.HostedZone(this, `${domain.name}-zone`, {
+        zoneName: domain.name,
+      });
+      this.hostedZones.set(domain.name, hostedZone);
 
-
-            new CfnOutput(this, `NSRecord`, {
-                value: Fn.join(',', hostedZone.hostedZoneNameServers || []),
-                description: `Name Servers for ${hostedZone.zoneName}`,
-            });
-
-            // Output the NS records
-            // if (hostedZone.hostedZoneNameServers) {
-            //     for (let i = 0; i < hostedZone.hostedZoneNameServers.length; i++) {
-            //         new CfnOutput(this, `NSRecord${i + 1} :: ${hostedZone.hostedZoneNameServers.length}`, {
-            //             value: Fn.select(i, hostedZone.hostedZoneNameServers),
-            //             description: `Name Server ${i + 1} for ${hostedZone.zoneName}`,
-            //         });
-            //     }
-            // }
-
-        }
-
-
-        // Export VPC ID to SSM Parameter Store
-        // new ssm.StringParameter(this, 'SharedVpcIdParam', {
-        //     parameterName: '/foundation/sheeta/hosted-zone', // Standardized path for easy discovery
-        //     stringValue: this.vpc.,
-        //     description: 'ID of the shared VPC for applications.',
-        //     tier: ssm.ParameterTier.STANDARD,
-        // });
-
+      new CfnOutput(this, `NSRecord`, {
+        value: Fn.join(",", hostedZone.hostedZoneNameServers || []),
+        description: `Name Servers for ${hostedZone.zoneName}`,
+      });
     }
 
+    // This is saying 'you can get a jwt from the url, and sts will
+    // be an "audience" member which accepts the result
+    const githubOidcProvider = new iam.OpenIdConnectProvider(
+      this,
+      `GithubOidcProvider`,
+      {
+        url: "https://token.actions.githubusercontent.com",
+        // Add this in later, but it needs command line invocations
+        // thumbprints: ['6938fd4d98bab03faadb97b34396831e3780aea1'],
+        clientIds: ["sts.amazonaws.com"],
+      },
+    );
 
+    const githubActionsDeploymentRole = new iam.Role(
+      this,
+      `GithubActionsDeploymentUser`,
+      {
+        assumedBy: new iam.WebIdentityPrincipal(
+          githubOidcProvider.openIdConnectProviderArn,
+          {
+            StringLike: {
+              "token.actions.githubusercontent.com:sub": "repo:iancullinane/*",
+              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+            },
+          },
+        ),
+        roleName: "iancullinane-sheeta-games-role",
+        inlinePolicies: {
+          "iancullinane-sheeta-games-policy": new iam.PolicyDocument({
+            statements: [
+              new iam.PolicyStatement({
+                effect: iam.Effect.ALLOW,
+                actions: ["*"],
+                resources: ["*"],
+              }),
+            ],
+          }),
+        },
+      },
+    );
 
+    //
+    // Bedrock stufffff
+    //
 
+    // Knowledge Base storage
+    this.kbStorage = new KnowledgeBaseStorage(this, "KBStorage");
 
-
-    // // Store NS records in SSM Parameter Store for each hosted zone
-    // for (const [domainName, zone] of this.hostedZones) {
-    //     const nsRecords = zone.hostedZoneNameServers || [];
-
-    //     new StringParameter(this, `${domainName}-ns-records`, {
-    //         parameterName: `/dns/${domainName}/nameservers`,
-    //         stringValue: JSON.stringify(nsRecords),
-    //         description: `Nameservers for ${domainName} hosted zone`
-    //     });
-    // }
+    this.oracle = new Oracle(this, "Oracle", {
+      collectionName: "collection-one",
+      description: "First attempt at deploy kb from CDK.",
+      sourceBucket: this.kbStorage.bucket,
+    });
+  }
 }

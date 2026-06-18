@@ -87,12 +87,12 @@ export class Foundation extends Stack {
     //
 
     // Knowledge Base storage
-    this.kbStorage = new KnowledgeBaseStorage(this, "KBStorage");
+    // this.kbStorage = new KnowledgeBaseStorage(this, "KBStorage");
 
-    this.oracle = new Oracle(this, "Oracle", {
-      collectionName: "collection-one",
-      description: "First attempt at deploy kb from CDK.",
-      sourceBucket: this.kbStorage.bucket,
-    });
+    // this.oracle = new Oracle(this, "Oracle", {
+    //   collectionName: "collection-one",
+    //   description: "First attempt at deploy kb from CDK.",
+    //   sourceBucket: this.kbStorage.bucket,
+    // });
   }
 }

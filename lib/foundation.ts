@@ -3,8 +3,6 @@ import { Construct } from "constructs";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as iam from "aws-cdk-lib/aws-iam";
-import { KnowledgeBaseStorage } from "./storage/kb-storage";
-import { Oracle } from "./oracle/oracle";
 
 interface Domain {
   name: string;
@@ -18,12 +16,8 @@ interface FoundationProps extends StackProps {
   network: NetworkConfig;
 }
 
-// At this point we will setup hosted zones as well as an S3 bucket
-// expressly to hold knowledge base data
 export class Foundation extends Stack {
   public readonly hostedZones: Map<string, route53.IHostedZone> = new Map();
-  public readonly kbStorage: KnowledgeBaseStorage;
-  public readonly oracle: Oracle;
 
   constructor(scope: Construct, id: string, props: FoundationProps) {
     super(scope, id, props);
@@ -81,18 +75,5 @@ export class Foundation extends Stack {
         },
       },
     );
-
-    //
-    // Bedrock stufffff
-    //
-
-    // Knowledge Base storage
-    // this.kbStorage = new KnowledgeBaseStorage(this, "KBStorage");
-
-    // this.oracle = new Oracle(this, "Oracle", {
-    //   collectionName: "collection-one",
-    //   description: "First attempt at deploy kb from CDK.",
-    //   sourceBucket: this.kbStorage.bucket,
-    // });
   }
 }

@@ -26,7 +26,12 @@ export class Database extends Stack {
     const removalPolicy = props.destroyOnDelete
       ? RemovalPolicy.DESTROY
       : RemovalPolicy.RETAIN;
-    console.log("DEBUG destroyOnDelete:", props.destroyOnDelete, "removalPolicy:", removalPolicy);
+    console.log(
+      "DEBUG destroyOnDelete:",
+      props.destroyOnDelete,
+      "removalPolicy:",
+      removalPolicy,
+    );
 
     const dbSecurityGroup = new ec2.SecurityGroup(this, "DbSecurityGroup", {
       vpc: props.vpc,
@@ -52,7 +57,7 @@ export class Database extends Stack {
 
     this.instance = new rds.DatabaseInstance(this, "Instance", {
       engine: rds.DatabaseInstanceEngine.postgres({
-        version: rds.PostgresEngineVersion.VER_17_4,
+        version: rds.PostgresEngineVersion.VER_17_9,
       }),
       instanceType: ec2.InstanceType.of(
         ec2.InstanceClass.BURSTABLE4_GRAVITON,

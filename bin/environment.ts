@@ -2,6 +2,7 @@
 import * as cdk from "aws-cdk-lib";
 
 import { Foundation } from "../lib/foundation";
+import { Storage } from "../lib/storage";
 import { loadConfig } from "../lib/config";
 
 const config = loadConfig();
@@ -25,6 +26,17 @@ cdk.Tags.of(app).add("Project", config.tags.Project);
 // - iam.Role (GitHub Actions deployment role, assumed via the OIDC provider)
 const foundation = new Foundation(app, "FoundationStack", {
   ...config.foundation,
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION,
+  },
+});
+
+// Resources:
+// - ecr.Repository (one per repository in config.storage.repositories)
+//   -> exposed as public readonly `repositories: Map<string, IRepository>`
+const storage = new Storage(app, "StorageStack", {
+  ...config.storage,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,

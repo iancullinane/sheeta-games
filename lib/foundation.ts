@@ -4,17 +4,19 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as iam from "aws-cdk-lib/aws-iam";
 
-interface Domain {
+export interface Domain {
   name: string;
 }
 
-interface NetworkConfig {
+export interface NetworkConfig {
   domains: Domain[];
 }
 
-interface FoundationProps extends StackProps {
+export interface FoundationConfig {
   network: NetworkConfig;
 }
+
+export interface FoundationProps extends StackProps, FoundationConfig {}
 
 export class Foundation extends Stack {
   public readonly hostedZones: Map<string, route53.IHostedZone> = new Map();

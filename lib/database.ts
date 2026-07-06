@@ -26,6 +26,7 @@ export class Database extends Stack {
     const removalPolicy = props.destroyOnDelete
       ? RemovalPolicy.DESTROY
       : RemovalPolicy.RETAIN;
+    console.log("DEBUG destroyOnDelete:", props.destroyOnDelete, "removalPolicy:", removalPolicy);
 
     const dbSecurityGroup = new ec2.SecurityGroup(this, "DbSecurityGroup", {
       vpc: props.vpc,

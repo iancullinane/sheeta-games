@@ -3,6 +3,7 @@ import * as path from "path";
 import { load } from "js-yaml";
 
 import { FoundationConfig } from "./foundation";
+import { StorageConfig } from "./storage";
 
 // Convention: the key under AppConfig for a given stack's config MUST match
 // that stack's name (e.g. `foundation` maps to the `Foundation` stack /
@@ -16,6 +17,7 @@ export interface AppConfig {
     Project: string;
   };
   foundation: FoundationConfig;
+  storage: StorageConfig;
 }
 
 export function loadConfig(configPath?: string): AppConfig {

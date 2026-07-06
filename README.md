@@ -93,3 +93,52 @@ To add a new route (e.g., EC2, S3, ECS endpoint):
 2. Import `ApiGatewayFoundation` in `bin/environment.ts`
 3. Pass `apiGateway.restApi` to your new stack
 4. Use `restApi.root.resourceForPath("/your-route")` to create your route
+
+# Stack Details queries
+
+## Start Local SSM Tunnel
+
+```shell
+ aws cloudformation describe-stacks --stack-name DatabaseStack \
+  --query "Stacks[0].Outputs" --output table
+
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+|                                                                                     DescribeStacks                                                                                      |
++-----------------------------------------------------------+--------------------+--------------------------------------------------------------------------------------------------------+
+|                        Description                        |     OutputKey      |                                              OutputValue                                               |
++-----------------------------------------------------------+--------------------+--------------------------------------------------------------------------------------------------------+
+|  RDS Postgres endpoint address                            |  DbEndpoint        |  databasestack-instancec1063a87-v3ohldeich8z.chckjbm1rgkk.us-east-2.rds.amazonaws.com                  |
+|  Secrets Manager ARN holding the generated DB credentials |  DbSecretArn       |  arn:aws:secretsmanager:us-east-2:346096930733:secret:DatabaseStackInstanceSecret-sfOyQZXVUbk6-PGKmLd  |
+|  Bastion instance ID for SSM port-forwarding              |  BastionInstanceId |  i-0fc15f8132d738851                                                                                   |
+|  RDS Postgres port                                        |  DbPort            |  5432                                                                                                  |
++-----------------------------------------------------------+--------------------+--------------------------------------------------------------------------------------------------------+
+```
+
+
+```shell
+ aws secretsmanager get-secret-value --secret-id arn:aws:secretsmanager:us-east-2:346096930733:secret:DatabaseStackInstanceSecret-sfOyQZXVUbk6-PGKmLd \
+  --query SecretString --output text | jq .
+{
+  "password": "h54YPEdJGuqLWbF8fWh63G1Ze=w.np",
+  "dbname": "prisoner",
+  "engine": "postgres",
+  "port": 5432,
+  "dbInstanceIdentifier": "databasestack-instancec1063a87-v3ohldeich8z",
+  "host": "databasestack-instancec1063a87-v3ohldeich8z.chckjbm1rgkk.us-east-2.rds.amazonaws.com",
+  "username": "prisoner_admin"
+}
+```
+
+
+```
+ aws ssm start-session \
+  --target i-0fc15f8132d738851 \
+  --document-name AWS-StartPortForwardingSessionToRemoteHost \
+  --parameters '{"host":["databasestack-instancec1063a87-v3ohldeich8z.chckjbm1rgkk.us-east-2.rds.amazonaws.com"],"portNumber":["5432"],"localPortNumber":["5432"]}'
+```
+
+Then leav it open and:
+
+```shell
+psql -h localhost -p 5432 -U prisoner_admin -d prisoner
+```

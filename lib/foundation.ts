@@ -3,6 +3,7 @@ import { Construct } from "constructs";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
 
 export interface Domain {
   name: string;
@@ -12,14 +13,21 @@ export interface NetworkConfig {
   domains: Domain[];
 }
 
+export interface VpcConfig {
+  maxAzs: number;
+  natGateways: number;
+}
+
 export interface FoundationConfig {
   network: NetworkConfig;
+  vpc: VpcConfig;
 }
 
 export interface FoundationProps extends StackProps, FoundationConfig {}
 
 export class Foundation extends Stack {
   public readonly hostedZones: Map<string, route53.IHostedZone> = new Map();
+  public readonly vpc: ec2.IVpc;
 
   constructor(scope: Construct, id: string, props: FoundationProps) {
     super(scope, id, props);
@@ -77,5 +85,27 @@ export class Foundation extends Stack {
         },
       },
     );
+
+    this.vpc = new ec2.Vpc(this, "Vpc", {
+      maxAzs: props.vpc.maxAzs,
+      natGateways: props.vpc.natGateways,
+      subnetConfiguration: [
+        {
+          name: "public",
+          subnetType: ec2.SubnetType.PUBLIC,
+          cidrMask: 24,
+        },
+        {
+          name: "private",
+          subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+          cidrMask: 24,
+        },
+      ],
+    });
+
+    new CfnOutput(this, "VpcId", {
+      value: this.vpc.vpcId,
+      description: "VPC ID for the environment",
+    });
   }
 }

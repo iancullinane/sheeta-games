@@ -1,0 +1,31 @@
+# Service gives our Pods one stable virtual IP + in-cluster DNS name. Pods are
+# ephemeral (each new one gets a new IP); the Service is the fixed "front door"
+# that load-balances across whichever Pods currently match. Core v1 object.
+apiVersion: v1
+# the object type
+kind: Service
+metadata:
+  # name of the Service — this also becomes its DNS name inside the cluster
+  name: prisoner-backend
+  # same namespace as the Pods it fronts
+  namespace: prisoner
+  # tags on the Service object itself
+  labels:
+    app: prisoner
+    component: backend
+spec:
+  # ClusterIP = an internal-only virtual IP, reachable from INSIDE the cluster.
+  # No public exposure yet — that arrives with the Ingress/ALB in 2b.
+  type: ClusterIP
+  # which Pods to route to: any Pod whose labels match these.
+  # Must match the Pod template labels in the Deployment.
+  selector:
+    app: prisoner
+    component: backend
+  ports:
+    # a name for this port mapping
+    - name: http
+      # the port the Service listens on (what callers connect to)
+      port: 5001
+      # the container port to forward to (our app listens on 5001)
+      targetPort: 5001

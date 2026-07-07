@@ -59,3 +59,43 @@ test("emits cluster name, kubeconfig command, and node role", () => {
   template.hasOutput("UpdateKubeconfigCommand", { Value: Match.anyValue() });
   template.hasOutput("NodeRoleArn", { Value: Match.anyValue() });
 });
+
+test("2b: creates an IRSA role for the load balancer controller (web-identity trust)", () => {
+  const template = Template.fromStack(platformStack());
+
+  // an IRSA role is defined by WHO may assume it: a web-identity token
+  // (the ServiceAccount's OIDC token), not a person or an AWS service.
+  template.hasResourceProperties("AWS::IAM::Role", {
+    AssumeRolePolicyDocument: Match.objectLike({
+      Statement: Match.arrayWith([
+        Match.objectLike({ Action: "sts:AssumeRoleWithWebIdentity" }),
+      ]),
+    }),
+  });
+});
+
+test("2b: the controller role can build load balancers (IAM policy attached)", () => {
+  const template = Template.fromStack(platformStack());
+
+  // a signature permission from the official controller policy proves the role
+  // can actually create ALBs — not just prove its identity.
+  template.hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: Match.objectLike({
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: Match.arrayWith(["elasticloadbalancing:CreateLoadBalancer"]),
+        }),
+      ]),
+    }),
+  });
+});
+
+test("2b: installs the AWS Load Balancer Controller Helm chart", () => {
+  const template = Template.fromStack(platformStack());
+
+  // a Helm install renders as a Custom::AWSCDK-EKS-HelmChart resource.
+  template.hasResourceProperties("Custom::AWSCDK-EKS-HelmChart", {
+    Chart: "aws-load-balancer-controller",
+    Namespace: "kube-system",
+  });
+});

@@ -4,6 +4,7 @@ import * as cdk from "aws-cdk-lib";
 import { Foundation } from "../lib/foundation";
 import { Storage } from "../lib/storage";
 import { Database } from "../lib/database";
+import { Platform } from "../lib/platform";
 import { loadConfig } from "../lib/config";
 
 const config = loadConfig();
@@ -63,6 +64,21 @@ const storage = new Storage(app, "StorageStack", {
 //   -> exposed as public readonly `bastion: Instance`
 const database = new Database(app, "DatabaseStack", {
   ...config.database,
+  vpc: foundation.vpc,
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region: process.env.CDK_DEFAULT_REGION,
+  },
+});
+
+// The EKS "platform" stack: cluster + managed node group + access.
+// Step 1a scaffold only — config plumbing + a placeholder output for now.
+// Stack outputs:
+// - ClusterName
+// Resources:
+// - (none yet; EKS cluster lands in Step 1b, node group in Step 1c)
+const platform = new Platform(app, "PlatformStack", {
+  ...config.platform,
   vpc: foundation.vpc,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,

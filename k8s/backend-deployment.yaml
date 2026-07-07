@@ -1,0 +1,77 @@
+# Deployment manages a set of identical Pods — it keeps the desired number
+# running, replaces ones that die, and handles rolling updates.
+# Deployments live in the apps/v1 API group (not core v1).
+apiVersion: apps/v1
+# the object type
+kind: Deployment
+metadata:
+  # name of this Deployment
+  name: prisoner-backend
+  # which namespace (folder) it lives in — the one from namespace.yaml
+  namespace: prisoner
+  # labels: key/value tags on the Deployment object itself (for humans/tools)
+  labels:
+    app: prisoner
+    component: backend
+spec:
+  # how many identical Pods to run. Memory store is per-Pod, so keep it at 1.
+  replicas: 1
+  # how this Deployment knows which Pods are "its own": it owns Pods whose
+  # labels match these. MUST match the template labels below.
+  selector:
+    matchLabels:
+      app: prisoner
+      component: backend
+  # template = the blueprint for every Pod this Deployment stamps out
+  template:
+    metadata:
+      # labels stamped onto each Pod — these are what the selector above matches
+      labels:
+        app: prisoner
+        component: backend
+    spec:
+      # a Pod runs one or more containers; we have exactly one
+      containers:
+        # a name for the container within the Pod
+        - name: backend
+          # the image to run: our ECR repo, :latest tag (built + pushed by CI)
+          image: 346096930733.dkr.ecr.us-east-2.amazonaws.com/prisoner:latest
+          # re-pull the image every start (needed because :latest is a moving tag)
+          imagePullPolicy: Always
+          # container args: "server" is the image's default command; with no
+          # DATABASE_URL set it runs the in-memory store — exactly what we want here
+          args: ["server"]
+          # the TCP port the app listens on inside the container
+          ports:
+            - name: http
+              containerPort: 5001
+          # liveness probe = "is the process alive?" If it fails, k8s RESTARTS the
+          # container. /healthz returns 200 without touching the DB, so it's a safe
+          # liveness signal (a DB blip won't cause restart loops).
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 5001
+            # wait 5s after the container starts before the first check
+            initialDelaySeconds: 5
+            # then check every 10s
+            periodSeconds: 10
+          # readiness probe = "is it ready to receive traffic?" If it fails, k8s
+          # stops routing traffic to this Pod but does NOT restart it. Same endpoint
+          # for now since there's no DB dependency yet (that changes in 2e).
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 5001
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          # resource hints for the scheduler.
+          # requests = guaranteed reservation; limits = hard cap.
+          resources:
+            requests:
+              # 50m = 50 millicores = 0.05 of a CPU core
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi

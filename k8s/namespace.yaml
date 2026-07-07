@@ -1,0 +1,7 @@
+# Namespace is a core k8s object, which live under v1
+apiVersion: v1
+# the object
+kind: Namespace
+# name the object
+metadata:
+  name: prisoner

@@ -40,7 +40,7 @@ const foundation = new Foundation(app, "FoundationStack", {
 // Resources:
 // - ecr.Repository (one per repository in config.storage.repositories)
 //   -> exposed as public readonly `repositories: Map<string, IRepository>`
-const storage = new Storage(app, "StorageStack", {
+new Storage(app, "StorageStack", {
   ...config.storage,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
@@ -62,7 +62,7 @@ const storage = new Storage(app, "StorageStack", {
 // - iam.Role (bastion role, AmazonSSMManagedInstanceCore)
 // - ec2.Instance (SSM-managed bastion host, public subnet)
 //   -> exposed as public readonly `bastion: Instance`
-const database = new Database(app, "DatabaseStack", {
+new Database(app, "DatabaseStack", {
   ...config.database,
   vpc: foundation.vpc,
   env: {
@@ -71,13 +71,17 @@ const database = new Database(app, "DatabaseStack", {
   },
 });
 
-// The EKS "platform" stack: cluster + managed node group + access.
-// Step 1a scaffold only — config plumbing + a placeholder output for now.
+// The EKS "platform" stack: cluster + admin access (node group in Step 1c).
 // Stack outputs:
 // - ClusterName
+// - UpdateKubeconfigCommand
+// - OidcProviderArn
 // Resources:
-// - (none yet; EKS cluster lands in Step 1b, node group in Step 1c)
-const platform = new Platform(app, "PlatformStack", {
+// - eks.Cluster (control plane; private-subnet ENIs, public+private endpoint,
+//   defaultCapacity 0 — no nodes yet) -> exposed as public readonly `cluster`
+// - eks.AccessEntry (admin principal -> AmazonEKSClusterAdminPolicy, cluster scope)
+// - (managed node group lands in Step 1c)
+new Platform(app, "PlatformStack", {
   ...config.platform,
   vpc: foundation.vpc,
   env: {

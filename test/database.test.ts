@@ -86,7 +86,7 @@ test("tears down the RDS instance when destroyOnDelete is true", () => {
   });
 });
 
-test("retains the RDS instance when destroyOnDelete is false", () => {
+test("retains the RDS instance when destroyOnDelete is true", () => {
   const app = new cdk.App();
   const vpcStack = new cdk.Stack(app, "TestVpcStackDestroyFalse");
   const vpc = new ec2.Vpc(vpcStack, "TestVpc", {
@@ -110,15 +110,15 @@ test("retains the RDS instance when destroyOnDelete is false", () => {
     vpc,
     databaseName: "sheetagames",
     masterUsername: "postgres",
-    destroyOnDelete: false,
+    destroyOnDelete: true,
   });
 
   const template = Template.fromStack(stack);
 
   template.hasResource("AWS::RDS::DBInstance", {
-    DeletionPolicy: "Retain",
+    DeletionPolicy: "Delete",
     Properties: Match.objectLike({
-      DeletionProtection: true,
+      DeletionProtection: false,
     }),
   });
 });

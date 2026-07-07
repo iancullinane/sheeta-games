@@ -42,13 +42,20 @@ test("1b: grants the admin principal cluster-admin via an EKS access entry", () 
   });
 });
 
-test("1b: control plane only — no node group yet (that's 1c)", () => {
+test("1c: creates a managed node group with the configured scaling and ARM AMI", () => {
   const template = Template.fromStack(platformStack());
-  template.resourceCountIs("AWS::EKS::Nodegroup", 0);
+
+  template.resourceCountIs("AWS::EKS::Nodegroup", 1);
+  template.hasResourceProperties("AWS::EKS::Nodegroup", {
+    ScalingConfig: { MinSize: 1, DesiredSize: 2, MaxSize: 3 },
+    AmiType: "AL2023_ARM_64_STANDARD",
+    InstanceTypes: ["t4g.small"],
+  });
 });
 
-test("1b: emits the cluster name and a kubeconfig command", () => {
+test("emits cluster name, kubeconfig command, and node role", () => {
   const template = Template.fromStack(platformStack());
   template.hasOutput("ClusterName", { Value: Match.anyValue() });
   template.hasOutput("UpdateKubeconfigCommand", { Value: Match.anyValue() });
+  template.hasOutput("NodeRoleArn", { Value: Match.anyValue() });
 });

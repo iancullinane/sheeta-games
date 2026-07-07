@@ -28,10 +28,11 @@ export class Platform extends Stack {
   constructor(scope: Construct, id: string, props: PlatformProps) {
     super(scope, id, props);
 
-    // Step 1b: control plane only. `defaultCapacity: 0` means no node group
-    // yet — that arrives in Step 1c. The stable `eks.Cluster` construct creates
-    // the cluster through a Lambda-backed custom resource (the KubectlProvider),
-    // which is why cluster-level changes flow through CloudFormation.
+    // `defaultCapacity: 0` skips the construct's built-in node group so we add
+    // one explicitly below (Step 1c) — clearer about instance type, scaling, and
+    // subnets. The stable `eks.Cluster` construct creates the cluster through a
+    // Lambda-backed custom resource (the KubectlProvider), which is why
+    // cluster-level changes flow through CloudFormation.
     //
     // Learning note: `kubectlLayer` must match `kubernetesVersion`. The two move
     // in lockstep — bumping the cluster to 1.32 means a KubectlV32Layer here.
@@ -54,9 +55,28 @@ export class Platform extends Stack {
       }),
     ]);
 
+    // Step 1c: managed node group — the EC2 capacity pods actually run on.
+    // addNodegroupCapacity auto-creates a node IAM role with three AWS-managed
+    // policies: AmazonEKSWorkerNodePolicy, AmazonEKS_CNI_Policy, and
+    // AmazonEC2ContainerRegistryReadOnly. That last one grants ECR read on ALL
+    // repos in this account (Resource: *) — an identity-based grant — so nodes can
+    // pull the prisoner image in M2 with no per-repo wiring or ECR repo policy.
+    const nodegroup = this.cluster.addNodegroupCapacity("Nodes", {
+      instanceTypes: [new ec2.InstanceType(props.nodeInstanceType)],
+      amiType: eks.NodegroupAmiType.AL2023_ARM_64_STANDARD,
+      minSize: props.nodeCount.min,
+      desiredSize: props.nodeCount.desired,
+      maxSize: props.nodeCount.max,
+      subnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+    });
+
     new CfnOutput(this, "ClusterName", {
       value: this.cluster.clusterName,
       description: "EKS cluster name",
+    });
+    new CfnOutput(this, "NodeRoleArn", {
+      value: nodegroup.role.roleArn,
+      description: "IAM role attached to the managed node group",
     });
     new CfnOutput(this, "UpdateKubeconfigCommand", {
       value: `aws eks update-kubeconfig --name ${this.cluster.clusterName} --region ${this.region}`,

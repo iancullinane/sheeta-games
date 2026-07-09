@@ -1,6 +1,7 @@
 import * as cdk from "aws-cdk-lib";
 import { Template, Match } from "aws-cdk-lib/assertions";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as route53 from "aws-cdk-lib/aws-route53";
 import { Platform } from "../lib/platform";
 
 function testVpc(app: cdk.App): ec2.IVpc {
@@ -19,10 +20,21 @@ function testVpc(app: cdk.App): ec2.IVpc {
   });
 }
 
+// An IMPORTED zone (fixed id/name) — enough for the Platform to scope ExternalDNS's
+// Route53 policy and domainFilter without provisioning a real zone in the test.
+function testZone(app: cdk.App): route53.IHostedZone {
+  const zoneStack = new cdk.Stack(app, "TestZoneStack");
+  return route53.HostedZone.fromHostedZoneAttributes(zoneStack, "TestZone", {
+    hostedZoneId: "Z0123456789ABCDEFGHIJ",
+    zoneName: "adventurebrave.com",
+  });
+}
+
 function platformStack(): cdk.Stack {
   const app = new cdk.App();
   return new Platform(app, "TestPlatformStack", {
     vpc: testVpc(app),
+    hostedZone: testZone(app),
     clusterName: "test-cluster",
     kubernetesVersion: "1.31",
     nodeInstanceType: "t4g.small",
@@ -96,6 +108,32 @@ test("2b: installs the AWS Load Balancer Controller Helm chart", () => {
   // a Helm install renders as a Custom::AWSCDK-EKS-HelmChart resource.
   template.hasResourceProperties("Custom::AWSCDK-EKS-HelmChart", {
     Chart: "aws-load-balancer-controller",
+    Namespace: "kube-system",
+  });
+});
+
+test("3c: ExternalDNS can write records in the hosted zone (IAM policy attached)", () => {
+  const template = Template.fromStack(platformStack());
+
+  // signature permission proving ExternalDNS can create/update DNS records. The
+  // ALB controller policy does NOT grant route53 writes, so this uniquely proves
+  // the ExternalDNS policy exists.
+  template.hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: Match.objectLike({
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: Match.arrayWith(["route53:ChangeResourceRecordSets"]),
+        }),
+      ]),
+    }),
+  });
+});
+
+test("3c: installs the ExternalDNS Helm chart", () => {
+  const template = Template.fromStack(platformStack());
+
+  template.hasResourceProperties("Custom::AWSCDK-EKS-HelmChart", {
+    Chart: "external-dns",
     Namespace: "kube-system",
   });
 });

@@ -37,7 +37,7 @@ CLUSTER_NAME ?= adventurebrave-eks
 eks-up:
 	cdk deploy PlatformStack --require-approval never
 	aws eks update-kubeconfig --name $(CLUSTER_NAME) --region $(AWS_REGION)
-	kubectl apply -f k8s/namespace.yaml
+	kubectl apply -f k8s/00-namespace.yaml
 	kubectl -n kube-system rollout status deploy/aws-load-balancer-controller --timeout=180s
 	kubectl apply -f k8s/
 

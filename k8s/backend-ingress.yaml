@@ -45,11 +45,14 @@ spec:
   # (you could have nginx-ingress and alb side by side, distinguished by class).
   ingressClassName: alb
   rules:
-      # No `host:` key ⇒ this rule matches ANY hostname. We have no DNS yet, so we
-      # reach the app via the ALB's own generated *.elb.amazonaws.com name. In M3c
-      # we'll add `host: prisoner.adventurebrave.com` here, which is also the signal
-      # ExternalDNS reads to create the Route53 record.
-    - http:
+      # `host:` scopes this rule to one hostname AND is the signal ExternalDNS reads:
+      # it watches Ingresses, sees this host, and reconciles a Route53 A record (+ a
+      # companion TXT ownership record) pointing prisoner.adventurebrave.com at the
+      # ALB — automatically, on every redeploy, so we stop chasing new ALB names.
+      # Trade-off: with a host set, the raw *.elb.amazonaws.com name no longer matches
+      # this rule (the ALB returns its default 404); reach the app via the hostname.
+    - host: prisoner.adventurebrave.com
+      http:
         paths:
           # ── API paths → backend ──────────────────────────────────────────────
           # pathType: Prefix matches by whole PATH SEGMENTS (split on "/"), not by

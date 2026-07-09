@@ -81,9 +81,17 @@ new Database(app, "DatabaseStack", {
 //   defaultCapacity 0 — no nodes yet) -> exposed as public readonly `cluster`
 // - eks.AccessEntry (admin principal -> AmazonEKSClusterAdminPolicy, cluster scope)
 // - (managed node group lands in Step 1c)
+// ExternalDNS (Step 3c) manages records in the app's hosted zone — pull it from
+// Foundation's exported map (created from config.foundation.network.domains).
+const appZone = foundation.hostedZones.get("adventurebrave.com");
+if (!appZone) {
+  throw new Error("hosted zone adventurebrave.com not found in FoundationStack");
+}
+
 new Platform(app, "PlatformStack", {
   ...config.platform,
   vpc: foundation.vpc,
+  hostedZone: appZone,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,

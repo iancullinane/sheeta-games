@@ -1,0 +1,110 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FRONTEND DEPLOYMENT — the SPA served by nginx.
+#
+# The object hierarchy at play here: a Deployment manages a ReplicaSet, and the
+# ReplicaSet manages Pods. You almost never create Pods or ReplicaSets directly —
+# you declare a Deployment (the desired end state) and the controllers reconcile
+# reality toward it: keeping `replicas` Pods alive, replacing crashed ones, and
+# rolling out new versions Pod-by-Pod when the template changes.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Deployment is in the apps/v1 API group (Pods/Services are core "v1"). The group
+# is part of the object's identity — kubectl uses apiVersion+kind to know the schema.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  # Object name — unique per (namespace, kind). This is how you address it:
+  # `kubectl rollout restart deploy/prisoner-frontend -n prisoner`.
+  name: prisoner-frontend
+  # Namespace = the virtual cluster/folder these objects live in. Names only need
+  # to be unique WITHIN a namespace. Ours is `prisoner` (see namespace.yaml).
+  namespace: prisoner
+  # Labels on the Deployment object itself — arbitrary key/value tags for humans
+  # and tooling (`kubectl get deploy -l app=prisoner`). They do NOT wire anything
+  # together; the wiring is done by the selector below.
+  labels:
+    app: prisoner
+    component: frontend        # the one label that tells frontend apart from backend
+spec:
+  # Desired number of identical Pods. The frontend is STATELESS (it only serves
+  # pre-built files — no in-memory data like the backend), so it's safe to run
+  # many replicas. Keeping 1 for now to save cost; bump this to scale out.
+  replicas: 1
+
+  # THE most important wiring in a Deployment: the selector is a label query that
+  # says "these Pods are mine." A Pod belongs to this Deployment iff its labels
+  # match here. This MUST equal the template labels below, or the API rejects it —
+  # a mismatch would mean the Deployment owns zero Pods and endlessly makes more.
+  selector:
+    matchLabels:
+      app: prisoner
+      component: frontend
+
+  # template = the blueprint stamped out for every Pod. Everything under here
+  # describes ONE Pod; the Deployment creates `replicas` copies of it.
+  template:
+    metadata:
+      # Labels applied to each Pod. These are what the selector above matches AND
+      # what the Service's selector (frontend-service.yaml) matches to find Pods.
+      # Labels are the universal glue in Kubernetes — Services, Deployments, and
+      # network policies all find Pods by label, never by name.
+      labels:
+        app: prisoner
+        component: frontend
+    spec:
+      # A Pod is one or more co-located containers sharing a network namespace
+      # (same localhost) and storage. We run exactly one.
+      containers:
+          # Container name — unique within the Pod; shows up in `kubectl logs`
+          # and `kubectl exec ... -c frontend`.
+        - name: frontend
+          # The image to pull and run: our ECR repo + the moving `:latest` tag that
+          # the frontend CI workflow pushes. Nodes can pull it because the node IAM
+          # role carries AmazonEC2ContainerRegistryReadOnly (ECR read on all repos).
+          image: 346096930733.dkr.ecr.us-east-2.amazonaws.com/prisoner-web:latest
+          # Because `:latest` is a moving tag, always re-pull on Pod (re)start so a
+          # fresh deploy actually picks up the new image. (With an immutable :sha tag
+          # you'd use IfNotPresent to avoid needless pulls.)
+          imagePullPolicy: Always
+          ports:
+              # Purely informational/documentation — it does NOT publish or open the
+              # port (containers can listen regardless). Naming it "http" lets other
+              # objects refer to the port by name instead of number.
+            - name: http
+              containerPort: 80          # nginx listens on :80 inside the container
+          # ── Probes: how the kubelet judges container health ──────────────────
+          # Both probes below hit nginx's own /healthz (returns 200 "ok"). The
+          # kubelet calls them on the Pod IP DIRECTLY — never through the ALB — so
+          # they measure THIS Pod, and never collide with the backend's /healthz.
+          #
+          # LIVENESS = "is the process wedged?" On failure the kubelet RESTARTS the
+          # container. Keep it cheap and dependency-free so a transient blip doesn't
+          # trigger a restart loop.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 5       # grace period before the first check
+            periodSeconds: 10            # then probe every 10s
+          # READINESS = "should this Pod receive traffic yet?" On failure the Pod is
+          # pulled OUT of Service/ALB rotation but NOT restarted. This is what makes
+          # rolling updates zero-downtime: a new Pod gets traffic only once ready.
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 80
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          # ── Resources: scheduling + guardrails, in CPU and memory ────────────
+          # requests = the amount RESERVED for this container; the scheduler only
+          # places the Pod on a node with at least this much free, and it's the
+          # baseline the Pod is guaranteed. limits = a HARD CAP: exceed the memory
+          # limit and the container is OOM-killed; exceed CPU and it's throttled.
+          # nginx serving static files is tiny, so these are small.
+          resources:
+            requests:
+              cpu: 25m                   # 25 millicores = 0.025 of one CPU core
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

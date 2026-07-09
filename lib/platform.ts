@@ -118,6 +118,12 @@ export class Platform extends Stack {
       values: {
         // the controller must know which cluster it manages
         clusterName: this.cluster.clusterName,
+        // Give the controller its VPC + region directly so it does NOT auto-
+        // discover them from node instance metadata (IMDS), which times out from
+        // inside a Pod. (IRSA still supplies credentials via the web-identity
+        // token — this only avoids the failing VPC/region metadata lookup.)
+        region: this.region,
+        vpcId: props.vpc.vpcId,
         // reuse the IRSA ServiceAccount from 2b.1 (not a permission-less new one)
         serviceAccount: { create: false, name: "aws-load-balancer-controller" },
       },

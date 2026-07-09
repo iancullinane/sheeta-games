@@ -62,7 +62,7 @@ new Storage(app, "StorageStack", {
 // - iam.Role (bastion role, AmazonSSMManagedInstanceCore)
 // - ec2.Instance (SSM-managed bastion host, public subnet)
 //   -> exposed as public readonly `bastion: Instance`
-new Database(app, "DatabaseStack", {
+const database = new Database(app, "DatabaseStack", {
   ...config.database,
   vpc: foundation.vpc,
   env: {
@@ -92,6 +92,7 @@ new Platform(app, "PlatformStack", {
   ...config.platform,
   vpc: foundation.vpc,
   hostedZone: appZone,
+  dbSecurityGroup: database.dbSecurityGroup,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,

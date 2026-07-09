@@ -19,6 +19,8 @@ export class Database extends Stack {
   public readonly instance: rds.DatabaseInstance;
   public readonly secret: secretsmanager.ISecret;
   public readonly bastion: ec2.Instance;
+  // exposed so PlatformStack can open 5432 from the EKS cluster SG (Step 2c).
+  public readonly dbSecurityGroup: ec2.ISecurityGroup;
 
   constructor(scope: Construct, id: string, props: DatabaseProps) {
     super(scope, id, props);
@@ -38,6 +40,7 @@ export class Database extends Stack {
       description: "Security group for the RDS Postgres instance",
       allowAllOutbound: true,
     });
+    this.dbSecurityGroup = dbSecurityGroup;
 
     const bastionSecurityGroup = new ec2.SecurityGroup(
       this,

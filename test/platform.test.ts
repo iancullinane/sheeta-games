@@ -30,11 +30,23 @@ function testZone(app: cdk.App): route53.IHostedZone {
   });
 }
 
+// An imported RDS security group (fixed id) — Platform adds the cluster→RDS
+// ingress rule onto it (Step 2c) without needing a real DatabaseStack.
+function testDbSg(app: cdk.App): ec2.ISecurityGroup {
+  const sgStack = new cdk.Stack(app, "TestDbSgStack");
+  return ec2.SecurityGroup.fromSecurityGroupId(
+    sgStack,
+    "TestDbSg",
+    "sg-0123456789abcdef0",
+  );
+}
+
 function platformStack(): cdk.Stack {
   const app = new cdk.App();
   return new Platform(app, "TestPlatformStack", {
     vpc: testVpc(app),
     hostedZone: testZone(app),
+    dbSecurityGroup: testDbSg(app),
     clusterName: "test-cluster",
     kubernetesVersion: "1.31",
     nodeInstanceType: "t4g.small",
@@ -126,6 +138,20 @@ test("3c: ExternalDNS can write records in the hosted zone (IAM policy attached)
         }),
       ]),
     }),
+  });
+});
+
+test("2c: opens RDS 5432 on the DB security group from the cluster", () => {
+  const template = Template.fromStack(platformStack());
+
+  // an ingress rule on the RDS SG (sg-0123…) for TCP 5432 — the network path from
+  // EKS pods to Postgres. The rule lives in THIS stack (Platform), keeping the DB
+  // SG's own stack free of a Platform import (so eks-down can destroy Platform).
+  template.hasResourceProperties("AWS::EC2::SecurityGroupIngress", {
+    IpProtocol: "tcp",
+    FromPort: 5432,
+    ToPort: 5432,
+    GroupId: "sg-0123456789abcdef0",
   });
 });
 

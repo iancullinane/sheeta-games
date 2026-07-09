@@ -25,6 +25,10 @@ export interface PlatformProps extends StackProps, PlatformConfig {
   // the hosted zone ExternalDNS manages records in (Step 3c). Passed from
   // Foundation (foundation.hostedZones), same pattern as the shared vpc.
   hostedZone: route53.IHostedZone;
+  // RDS security group we open 5432 on from the cluster SG (Step 2c). Kept as an
+  // input (not a Database import inside Platform) so the rule resource lands HERE,
+  // in PlatformStack — that keeps `cdk destroy PlatformStack` unblocked.
+  dbSecurityGroup: ec2.ISecurityGroup;
 }
 
 export class Platform extends Stack {
@@ -201,6 +205,24 @@ export class Platform extends Stack {
     });
     externalDns.node.addDependency(externalDnsServiceAccount);
     externalDns.node.addDependency(nodegroup);
+
+    // --- RDS network path (Step 2c) ------------------------------------------
+    // Open Postgres (5432) on the RDS security group to the EKS CLUSTER security
+    // group — the SG the VPC CNI attaches to pod ENIs and nodes, i.e. the source of
+    // pod→RDS traffic. We re-import the DB SG by id and add the rule here, so the
+    // AWS::EC2::SecurityGroupIngress lands in PlatformStack (not DatabaseStack).
+    // That's what keeps `cdk destroy PlatformStack` (eks-down) unblocked: Database
+    // never imports anything from Platform.
+    ec2.SecurityGroup.fromSecurityGroupId(
+      this,
+      "RdsDbSecurityGroup",
+      props.dbSecurityGroup.securityGroupId,
+      { mutable: true },
+    ).addIngressRule(
+      ec2.Peer.securityGroupId(this.cluster.clusterSecurityGroupId),
+      ec2.Port.tcp(5432),
+      "EKS pods to RDS Postgres",
+    );
 
     // HTTPS note (Step 3d): the ALB's TLS cert is the WILDCARD *.adventurebrave.com
     // created in FoundationStack. The LB controller auto-discovers it by the Ingress

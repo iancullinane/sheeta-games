@@ -1,0 +1,93 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# INGRESS — HTTP routing rules for traffic ENTERING the cluster.
+#
+# An Ingress is DECLARATIVE INTENT, not a running thing. By itself it does nothing.
+# The AWS Load Balancer Controller (installed via CDK) watches Ingress objects and
+# provisions/updates a real AWS Application Load Balancer to satisfy these rules —
+# creating a listener, a target group per backend Service, and listener rules that
+# map paths to those target groups. Delete the Ingress and the controller tears the
+# ALB back down (an ingress finalizer makes `kubectl delete` block until it's gone).
+#
+# This single Ingress now fronts the WHOLE app (frontend + backend) behind ONE ALB.
+# That's the payoff of same-origin path routing: the browser loads the SPA and calls
+# the API on the same hostname, so there's no CORS and only one load balancer to pay
+# for and DNS to point at (M3c).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Ingress lives in the networking.k8s.io/v1 API group.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  # Name kept as `prisoner-backend` on purpose: the ALB is keyed to this Ingress's
+  # identity, so RENAMING the object would make the controller destroy the current
+  # ALB and build a new one (new DNS name, brief downtime). We keep the legacy name
+  # even though it now routes both services. (File/comment clarity > object rename.)
+  name: prisoner-backend
+  namespace: prisoner
+  # Annotations are the ALB controller's configuration channel — free-form strings
+  # under the alb.ingress.kubernetes.io/ prefix that shape the load balancer.
+  annotations:
+    # Provision a PUBLIC (internet-facing) ALB in the public subnets, vs `internal`.
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # Register POD IPs directly in the target group (works with the AWS VPC CNI,
+    # which gives every Pod a real VPC IP). The alternative, `instance`, routes via
+    # a NodePort on each node — an extra hop. `ip` is the modern default.
+    alb.ingress.kubernetes.io/target-type: ip
+    # ALB target-group HEALTH CHECK path, applied to every target group this Ingress
+    # creates. Both our services answer /healthz with 200 (nginx returns "ok"; the Go
+    # backend has a dependency-free handler), so one setting keeps BOTH target groups
+    # healthy. Without it the controller's default check hits "/", which the backend
+    # 404s — that TG would flap unhealthy and the ALB would 503 those requests.
+    alb.ingress.kubernetes.io/healthcheck-path: /healthz
+spec:
+  # Opts this Ingress into the "alb" IngressClass that the controller's Helm chart
+  # registered. This is what tells Kubernetes WHICH controller owns this Ingress
+  # (you could have nginx-ingress and alb side by side, distinguished by class).
+  ingressClassName: alb
+  rules:
+      # No `host:` key ⇒ this rule matches ANY hostname. We have no DNS yet, so we
+      # reach the app via the ALB's own generated *.elb.amazonaws.com name. In M3c
+      # we'll add `host: prisoner.adventurebrave.com` here, which is also the signal
+      # ExternalDNS reads to create the Route53 record.
+    - http:
+        paths:
+          # ── API paths → backend ──────────────────────────────────────────────
+          # pathType: Prefix matches by whole PATH SEGMENTS (split on "/"), not by
+          # raw string prefix. So `/players` matches `/players` and `/players/ian`
+          # but NOT `/playersfoo`; and `/play` does NOT accidentally swallow
+          # `/players` (different segment). The ALB controller orders rules by
+          # specificity — these longer prefixes are evaluated BEFORE the "/" catch-
+          # all below, so API traffic reaches the backend and everything else falls
+          # through to the SPA.
+          - path: /players
+            pathType: Prefix
+            backend:
+              service:
+                name: prisoner-backend     # the backend Service (backend-service.yaml)
+                port:
+                  number: 5001             # matches that Service's `port`
+          - path: /play
+            pathType: Prefix
+            backend:
+              service:
+                name: prisoner-backend
+                port:
+                  number: 5001
+          - path: /history
+            pathType: Prefix
+            backend:
+              service:
+                name: prisoner-backend
+                port:
+                  number: 5001
+          # ── Everything else → frontend (the SPA) ─────────────────────────────
+          # "/" Prefix is the catch-all: /, /index.html, /assets/*, and any client
+          # route the browser requests that ISN'T an API path lands on nginx, which
+          # serves index.html (its own try_files fallback handles deep links).
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prisoner-frontend    # the frontend Service (frontend-service.yaml)
+                port:
+                  number: 80

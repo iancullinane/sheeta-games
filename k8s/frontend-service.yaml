@@ -1,0 +1,51 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# FRONTEND SERVICE — a stable network identity for the frontend Pods.
+#
+# Why this exists: Pods are cattle, not pets. Each new Pod gets a fresh IP, and
+# they come and go (rollouts, crashes, scaling). Nothing should ever talk to a Pod
+# IP directly. A Service is a stable virtual IP + in-cluster DNS name that always
+# points at "whatever Pods currently match my selector," load-balancing across them.
+#
+# How it actually works under the hood: the endpoints controller watches for Pods
+# matching the selector and maintains an EndpointSlice (the live list of ready Pod
+# IPs). Our ALB uses target-type: ip, so the AWS Load Balancer Controller reads
+# that same endpoint list and registers the Pod IPs straight into the target group.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Service is a core "v1" object (no API group prefix), unlike the apps/v1 Deployment.
+apiVersion: v1
+kind: Service
+metadata:
+  # The Service name doubles as its in-cluster DNS record:
+  # `prisoner-frontend.prisoner.svc.cluster.local` (short form `prisoner-frontend`
+  # from within the same namespace). The Ingress refers to it by this name.
+  name: prisoner-frontend
+  # Must be the SAME namespace as the Pods it fronts — a Service selects Pods only
+  # within its own namespace.
+  namespace: prisoner
+  labels:
+    app: prisoner
+    component: frontend
+spec:
+  # Service TYPES, briefly:
+  #   ClusterIP    - internal-only virtual IP (this one). Reachable from inside the
+  #                  cluster; the Ingress/ALB is what exposes it to the internet.
+  #   NodePort     - also opens a high port on every node.
+  #   LoadBalancer - provisions a cloud LB per Service (one ELB each — we avoid this
+  #                  and instead share ONE ALB across services via the Ingress).
+  type: ClusterIP
+  # The selector: this Service routes to any Pod in this namespace whose labels
+  # match. It MUST match the Pod template labels in frontend-deployment.yaml — this
+  # is the (only) thing connecting the Service to those Pods. No selector match ⇒
+  # no endpoints ⇒ the Service is a black hole.
+  selector:
+    app: prisoner
+    component: frontend
+  ports:
+      # Named so the Ingress/health-checks could reference "http" instead of 80.
+    - name: http
+      # port      = the port the SERVICE listens on (what callers connect to).
+      port: 80
+      # targetPort = the port on the POD/container to forward to. They're the same
+      # here (nginx = 80), but they're allowed to differ (e.g. Service 80 → Pod 8080).
+      targetPort: 80

@@ -39,6 +39,17 @@ metadata:
     # healthy. Without it the controller's default check hits "/", which the backend
     # 404s — that TG would flap unhealthy and the ALB would 503 those requests.
     alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    # Give the ALB two listeners: plain HTTP on 80 and TLS on 443. (Value is a
+    # JSON string — the controller parses it.)
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # Redirect every HTTP:80 request to HTTPS:443 (301) — no plaintext serving.
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # NOTE: no certificate-arn here on purpose. With a 443 listener and no explicit
+    # cert, the controller AUTO-DISCOVERS the ACM cert whose domain matches the
+    # Ingress `host:` (prisoner.adventurebrave.com) — that's the cert CDK issues in
+    # Step 3d. The controller's IAM policy already allows acm:ListCertificates /
+    # DescribeCertificate. If discovery ever misbehaves, paste the CertificateArn
+    # output here as alb.ingress.kubernetes.io/certificate-arn.
 spec:
   # Opts this Ingress into the "alb" IngressClass that the controller's Helm chart
   # registered. This is what tells Kubernetes WHICH controller owns this Ingress

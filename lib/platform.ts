@@ -202,6 +202,11 @@ export class Platform extends Stack {
     externalDns.node.addDependency(externalDnsServiceAccount);
     externalDns.node.addDependency(nodegroup);
 
+    // HTTPS note (Step 3d): the ALB's TLS cert is the WILDCARD *.adventurebrave.com
+    // created in FoundationStack. The LB controller auto-discovers it by the Ingress
+    // host, so there's no cert (and no cross-stack ref) in this stack — Platform only
+    // needs `hostedZone` for ExternalDNS above.
+
     new CfnOutput(this, "ClusterName", {
       value: this.cluster.clusterName,
       description: "EKS cluster name",

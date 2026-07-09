@@ -1,6 +1,7 @@
 import { CfnOutput, Fn, Stack, StackProps, Tags } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as route53 from "aws-cdk-lib/aws-route53";
+import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
@@ -27,6 +28,9 @@ export interface FoundationProps extends StackProps, FoundationConfig {}
 
 export class Foundation extends Stack {
   public readonly hostedZones: Map<string, route53.IHostedZone> = new Map();
+  // wildcard ACM cert per domain — a shared, reusable TLS primitive alongside the
+  // zone. Apps' ALBs auto-discover it by host, so nothing needs to import this ref.
+  public readonly certificates: Map<string, acm.ICertificate> = new Map();
   public readonly vpc: ec2.IVpc;
 
   constructor(scope: Construct, id: string, props: FoundationProps) {
@@ -42,6 +46,24 @@ export class Foundation extends Stack {
       new CfnOutput(this, `NSRecord`, {
         value: Fn.join(",", hostedZone.hostedZoneNameServers || []),
         description: `Name Servers for ${hostedZone.zoneName}`,
+      });
+
+      // Wildcard TLS cert for the domain, DNS-validated against the zone we just
+      // created (CDK writes the ACM validation records and the stack blocks until
+      // issued). `*.domain` covers every one-label subdomain (prisoner., app., …);
+      // the SAN adds the apex. Regional (this stack's region) — right for ALBs; a
+      // CloudFront edge would need a separate us-east-1 cert. App ALBs pick this up
+      // via the LB controller's cert auto-discovery — no cross-stack ref needed.
+      const certificate = new acm.Certificate(this, `${domain.name}-cert`, {
+        domainName: `*.${domain.name}`,
+        subjectAlternativeNames: [domain.name],
+        validation: acm.CertificateValidation.fromDns(hostedZone),
+      });
+      this.certificates.set(domain.name, certificate);
+
+      new CfnOutput(this, `CertificateArn`, {
+        value: certificate.certificateArn,
+        description: `Wildcard ACM cert ARN for ${domain.name}`,
       });
     }
 

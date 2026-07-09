@@ -4,6 +4,7 @@ import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as eks from "aws-cdk-lib/aws-eks";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as route53 from "aws-cdk-lib/aws-route53";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { KubectlV31Layer } from "@aws-cdk/lambda-layer-kubectl-v31";
 
 export interface NodeCount {
@@ -29,6 +30,9 @@ export interface PlatformProps extends StackProps, PlatformConfig {
   // input (not a Database import inside Platform) so the rule resource lands HERE,
   // in PlatformStack — that keeps `cdk destroy PlatformStack` unblocked.
   dbSecurityGroup: ec2.ISecurityGroup;
+  // RDS credentials secret (Secrets Manager). ESO's IRSA role gets read on ONLY
+  // this secret (Step 2d), then syncs it into a k8s Secret as DATABASE_URL.
+  dbSecret: secretsmanager.ISecret;
 }
 
 export class Platform extends Stack {
@@ -223,6 +227,37 @@ export class Platform extends Stack {
       ec2.Port.tcp(5432),
       "EKS pods to RDS Postgres",
     );
+
+    // --- External Secrets Operator: IRSA identity (Step 2d) ------------------
+    // ESO syncs AWS Secrets Manager secrets into Kubernetes Secrets. Its controller
+    // Pod reads the RDS secret from AWS, so — same IRSA pattern a third time — it
+    // runs as a ServiceAccount bound to a scoped IAM role. In kube-system (exists),
+    // which sidesteps a namespace-creation ordering dance with the Helm install.
+    const externalSecretsServiceAccount = this.cluster.addServiceAccount(
+      "ExternalSecretsServiceAccount",
+      { name: "external-secrets", namespace: "kube-system" },
+    );
+    // Read on ONLY the RDS secret: grantRead scopes GetSecretValue/DescribeSecret
+    // to this secret's ARN, so ESO can fetch the DB creds and nothing else.
+    props.dbSecret.grantRead(externalSecretsServiceAccount.role);
+
+    // --- 2d: install External Secrets Operator (Helm) ------------------------
+    // installCRDs:true ships the SecretStore/ExternalSecret CRDs our k8s manifests
+    // use. The controller runs as our IRSA SA (create:false) so it inherits the
+    // secret-read role via the pod's projected token. Chart 2.7.0.
+    const externalSecrets = this.cluster.addHelmChart("ExternalSecrets", {
+      chart: "external-secrets",
+      repository: "https://charts.external-secrets.io",
+      release: "external-secrets",
+      namespace: "kube-system",
+      version: "2.7.0",
+      values: {
+        installCRDs: true,
+        serviceAccount: { create: false, name: "external-secrets" },
+      },
+    });
+    externalSecrets.node.addDependency(externalSecretsServiceAccount);
+    externalSecrets.node.addDependency(nodegroup);
 
     // HTTPS note (Step 3d): the ALB's TLS cert is the WILDCARD *.adventurebrave.com
     // created in FoundationStack. The LB controller auto-discovers it by the Ingress

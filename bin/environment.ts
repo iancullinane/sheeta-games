@@ -93,6 +93,7 @@ new Platform(app, "PlatformStack", {
   vpc: foundation.vpc,
   hostedZone: appZone,
   dbSecurityGroup: database.dbSecurityGroup,
+  dbSecret: database.secret,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,

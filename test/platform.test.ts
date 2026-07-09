@@ -2,6 +2,7 @@ import * as cdk from "aws-cdk-lib";
 import { Template, Match } from "aws-cdk-lib/assertions";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as route53 from "aws-cdk-lib/aws-route53";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { Platform } from "../lib/platform";
 
 function testVpc(app: cdk.App): ec2.IVpc {
@@ -41,12 +42,24 @@ function testDbSg(app: cdk.App): ec2.ISecurityGroup {
   );
 }
 
+// An imported RDS credentials secret (fixed ARN) so ESO's IRSA role can be scoped
+// to it (Step 2d) without a real DatabaseStack.
+function testDbSecret(app: cdk.App): secretsmanager.ISecret {
+  const secretStack = new cdk.Stack(app, "TestDbSecretStack");
+  return secretsmanager.Secret.fromSecretCompleteArn(
+    secretStack,
+    "TestDbSecret",
+    "arn:aws:secretsmanager:us-east-2:123456789012:secret:test-db-AbCdEf",
+  );
+}
+
 function platformStack(): cdk.Stack {
   const app = new cdk.App();
   return new Platform(app, "TestPlatformStack", {
     vpc: testVpc(app),
     hostedZone: testZone(app),
     dbSecurityGroup: testDbSg(app),
+    dbSecret: testDbSecret(app),
     clusterName: "test-cluster",
     kubernetesVersion: "1.31",
     nodeInstanceType: "t4g.small",
@@ -152,6 +165,31 @@ test("2c: opens RDS 5432 on the DB security group from the cluster", () => {
     FromPort: 5432,
     ToPort: 5432,
     GroupId: "sg-0123456789abcdef0",
+  });
+});
+
+test("2d: ESO can read ONLY the RDS secret (IAM policy attached)", () => {
+  const template = Template.fromStack(platformStack());
+
+  // grantRead scopes the ESO role to secretsmanager:GetSecretValue on the RDS
+  // secret's ARN — it can fetch DB creds and nothing else in Secrets Manager.
+  template.hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: Match.objectLike({
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: Match.arrayWith(["secretsmanager:GetSecretValue"]),
+        }),
+      ]),
+    }),
+  });
+});
+
+test("2d: installs the External Secrets Operator Helm chart", () => {
+  const template = Template.fromStack(platformStack());
+
+  template.hasResourceProperties("Custom::AWSCDK-EKS-HelmChart", {
+    Chart: "external-secrets",
+    Namespace: "kube-system",
   });
 });
 

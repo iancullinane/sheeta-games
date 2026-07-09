@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# MIGRATION JOB — run the database schema migrations once, as a deliberate step.
+#
+# A Job runs a Pod to COMPLETION (unlike a Deployment, which keeps Pods running).
+# This one runs the SAME prisoner image but with `migrate up` instead of `server`,
+# so it applies any pending goose migrations to RDS and then exits. The migration
+# SQL is embedded in the binary (goose.SetBaseFS), so no files need to be mounted.
+#
+# Kept in k8s/jobs/ (NOT k8s/ root) so `kubectl apply -f k8s/` skips it — migrations
+# are a deliberate one-off (`make migrate`), not part of every cluster bring-up.
+# ─────────────────────────────────────────────────────────────────────────────
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: prisoner-migrate
+  namespace: prisoner
+spec:
+  # If the Pod fails (e.g. the Secret isn't synced yet, or a transient DB blip),
+  # recreate it up to this many times before marking the Job failed.
+  backoffLimit: 4
+  # Auto-delete the finished Job (and its Pod) 10 min after it completes, so a later
+  # `kubectl apply` can recreate + re-run it cleanly. goose only applies PENDING
+  # migrations, so re-running is always a safe no-op when already up to date.
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: prisoner
+        component: migrate      # distinguishes the migrate Pod from backend/frontend
+    spec:
+      # Never = don't restart the container in place; the Job's backoffLimit handles
+      # retries by creating a fresh Pod. Correct policy for run-to-completion tasks.
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          # same image as the backend — migrations ship inside the binary
+          image: 346096930733.dkr.ecr.us-east-2.amazonaws.com/prisoner:latest
+          imagePullPolicy: Always
+          # override the image's default `server` command with the migrate subcommand
+          args: ["migrate", "up"]
+          env:
+            # the DSN goose connects with — from the ESO-synced Secret (Step 2d),
+            # the exact same credential the app will use.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: prisoner-db
+                  key: DATABASE_URL

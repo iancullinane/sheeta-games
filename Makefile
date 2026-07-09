@@ -1,6 +1,6 @@
 # This makefile is strictly for building the Go application
 
-.PHONY: build clean deploy synth eks-up eks-down eks-url
+.PHONY: build clean deploy synth eks-up eks-down eks-url migrate
 
 # build:
 # 	mkdir -p lib/functions/build
@@ -31,14 +31,16 @@ CLUSTER_NAME ?= adventurebrave-eks
 #      alphabetically, so on a fresh cluster the namespaced objects would race
 #      ahead of namespace.yaml ("namespace not found"). Applying it explicitly
 #      first makes the subsequent full apply idempotent.
-#   3. Wait for the ALB controller: it registers an admission webhook for
-#      Ingresses, so applying the Ingress before its Pods are Ready fails with
-#      "connection refused calling webhook". rollout status blocks until ready.
+#   3. Wait for the ALB controller AND External Secrets Operator: both register
+#      admission webhooks (for Ingresses / SecretStore+ExternalSecret), so applying
+#      those objects before their Pods are Ready fails with "connection refused
+#      calling webhook". rollout status blocks until each is ready.
 eks-up:
 	cdk deploy PlatformStack --require-approval never
 	aws eks update-kubeconfig --name $(CLUSTER_NAME) --region $(AWS_REGION)
 	kubectl apply -f k8s/00-namespace.yaml
 	kubectl -n kube-system rollout status deploy/aws-load-balancer-controller --timeout=180s
+	kubectl -n kube-system rollout status deploy/external-secrets --timeout=180s
 	kubectl apply -f k8s/
 
 # eks-down: SAFE-ORDER teardown. Delete k8s workloads FIRST so any AWS resources
@@ -54,3 +56,9 @@ eks-down:
 eks-url:
 	@kubectl get ingress -n prisoner \
 	  -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'; echo
+
+migrate:
+	-kubectl delete job prisoner-migrate -n prisoner --ignore-not-found
+	kubectl apply -f k8s/jobs/migrate.yaml
+	kubectl wait --for=condition=complete job/prisoner-migrate -n prisoner --timeout=120s
+	kubectl logs job/prisoner-migrate -n prisoner

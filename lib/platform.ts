@@ -3,6 +3,8 @@ import { Construct } from "constructs";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as eks from "aws-cdk-lib/aws-eks";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as route53 from "aws-cdk-lib/aws-route53";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import { KubectlV31Layer } from "@aws-cdk/lambda-layer-kubectl-v31";
 
 export interface NodeCount {
@@ -21,6 +23,16 @@ export interface PlatformConfig {
 
 export interface PlatformProps extends StackProps, PlatformConfig {
   vpc: ec2.IVpc;
+  // the hosted zone ExternalDNS manages records in (Step 3c). Passed from
+  // Foundation (foundation.hostedZones), same pattern as the shared vpc.
+  hostedZone: route53.IHostedZone;
+  // RDS security group we open 5432 on from the cluster SG (Step 2c). Kept as an
+  // input (not a Database import inside Platform) so the rule resource lands HERE,
+  // in PlatformStack — that keeps `cdk destroy PlatformStack` unblocked.
+  dbSecurityGroup: ec2.ISecurityGroup;
+  // RDS credentials secret (Secrets Manager). ESO's IRSA role gets read on ONLY
+  // this secret (Step 2d), then syncs it into a k8s Secret as DATABASE_URL.
+  dbSecret: secretsmanager.ISecret;
 }
 
 export class Platform extends Stack {
@@ -131,6 +143,126 @@ export class Platform extends Stack {
     // install the chart only after the ServiceAccount and nodes exist
     albController.node.addDependency(albServiceAccount);
     albController.node.addDependency(nodegroup);
+
+    // --- ExternalDNS: IRSA identity (Step 3c) --------------------------------
+    // ExternalDNS watches Ingress objects and writes matching Route53 records, so
+    // like the ALB controller it runs as a Pod that needs an AWS identity. Same
+    // IRSA shape: a Kubernetes ServiceAccount bound to a scoped IAM role.
+    const externalDnsServiceAccount = this.cluster.addServiceAccount(
+      "ExternalDnsServiceAccount",
+      {
+        // the ServiceAccount name we tell the Helm chart to reuse below
+        name: "external-dns",
+        namespace: "kube-system",
+      },
+    );
+    // --- 3c: scope its Route53 permissions to OUR zone -----------------------
+    // Writing/reading records is scoped to THIS hosted zone's ARN — ExternalDNS
+    // can't touch any other zone. The List* calls are account-level operations
+    // that don't support resource scoping, so they must be on "*".
+    externalDnsServiceAccount.role.attachInlinePolicy(
+      new iam.Policy(this, "ExternalDnsPolicy", {
+        document: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: [
+                "route53:ChangeResourceRecordSets",
+                "route53:ListResourceRecordSets",
+              ],
+              resources: [props.hostedZone.hostedZoneArn],
+            }),
+            new iam.PolicyStatement({
+              actions: [
+                "route53:ListHostedZones",
+                "route53:ListHostedZonesByName",
+                "route53:ListTagsForResources",
+              ],
+              resources: ["*"],
+            }),
+          ],
+        }),
+      }),
+    );
+    // --- 3c: install ExternalDNS (Helm) --------------------------------------
+    // sources:[ingress] → it reconciles a Route53 record for each Ingress host
+    // rule. registry:txt + txtOwnerId writes companion TXT records so it only ever
+    // manages records IT owns; policy:sync lets it create, update AND delete them.
+    // domainFilters fences it to our zone. serviceAccount.create=false reuses the
+    // IRSA SA above. AWS_DEFAULT_REGION is set explicitly so it never depends on the
+    // pod IMDS lookup — the same trap that crashed the ALB controller in 2b.
+    const externalDns = this.cluster.addHelmChart("ExternalDns", {
+      chart: "external-dns",
+      repository: "https://kubernetes-sigs.github.io/external-dns/",
+      release: "external-dns",
+      namespace: "kube-system",
+      version: "1.21.1",
+      values: {
+        provider: { name: "aws" },
+        policy: "sync",
+        registry: "txt",
+        txtOwnerId: "prisoner-eks",
+        domainFilters: [props.hostedZone.zoneName],
+        sources: ["ingress"],
+        serviceAccount: { create: false, name: "external-dns" },
+        env: [{ name: "AWS_DEFAULT_REGION", value: this.region }],
+      },
+    });
+    externalDns.node.addDependency(externalDnsServiceAccount);
+    externalDns.node.addDependency(nodegroup);
+
+    // --- RDS network path (Step 2c) ------------------------------------------
+    // Open Postgres (5432) on the RDS security group to the EKS CLUSTER security
+    // group — the SG the VPC CNI attaches to pod ENIs and nodes, i.e. the source of
+    // pod→RDS traffic. We re-import the DB SG by id and add the rule here, so the
+    // AWS::EC2::SecurityGroupIngress lands in PlatformStack (not DatabaseStack).
+    // That's what keeps `cdk destroy PlatformStack` (eks-down) unblocked: Database
+    // never imports anything from Platform.
+    ec2.SecurityGroup.fromSecurityGroupId(
+      this,
+      "RdsDbSecurityGroup",
+      props.dbSecurityGroup.securityGroupId,
+      { mutable: true },
+    ).addIngressRule(
+      ec2.Peer.securityGroupId(this.cluster.clusterSecurityGroupId),
+      ec2.Port.tcp(5432),
+      "EKS pods to RDS Postgres",
+    );
+
+    // --- External Secrets Operator: IRSA identity (Step 2d) ------------------
+    // ESO syncs AWS Secrets Manager secrets into Kubernetes Secrets. Its controller
+    // Pod reads the RDS secret from AWS, so — same IRSA pattern a third time — it
+    // runs as a ServiceAccount bound to a scoped IAM role. In kube-system (exists),
+    // which sidesteps a namespace-creation ordering dance with the Helm install.
+    const externalSecretsServiceAccount = this.cluster.addServiceAccount(
+      "ExternalSecretsServiceAccount",
+      { name: "external-secrets", namespace: "kube-system" },
+    );
+    // Read on ONLY the RDS secret: grantRead scopes GetSecretValue/DescribeSecret
+    // to this secret's ARN, so ESO can fetch the DB creds and nothing else.
+    props.dbSecret.grantRead(externalSecretsServiceAccount.role);
+
+    // --- 2d: install External Secrets Operator (Helm) ------------------------
+    // installCRDs:true ships the SecretStore/ExternalSecret CRDs our k8s manifests
+    // use. The controller runs as our IRSA SA (create:false) so it inherits the
+    // secret-read role via the pod's projected token. Chart 2.7.0.
+    const externalSecrets = this.cluster.addHelmChart("ExternalSecrets", {
+      chart: "external-secrets",
+      repository: "https://charts.external-secrets.io",
+      release: "external-secrets",
+      namespace: "kube-system",
+      version: "2.7.0",
+      values: {
+        installCRDs: true,
+        serviceAccount: { create: false, name: "external-secrets" },
+      },
+    });
+    externalSecrets.node.addDependency(externalSecretsServiceAccount);
+    externalSecrets.node.addDependency(nodegroup);
+
+    // HTTPS note (Step 3d): the ALB's TLS cert is the WILDCARD *.adventurebrave.com
+    // created in FoundationStack. The LB controller auto-discovers it by the Ingress
+    // host, so there's no cert (and no cross-stack ref) in this stack — Platform only
+    // needs `hostedZone` for ExternalDNS above.
 
     new CfnOutput(this, "ClusterName", {
       value: this.cluster.clusterName,

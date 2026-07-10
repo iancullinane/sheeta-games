@@ -38,9 +38,18 @@ spec:
           image: 346096930733.dkr.ecr.us-east-2.amazonaws.com/prisoner:latest
           # re-pull the image every start (needed because :latest is a moving tag)
           imagePullPolicy: Always
-          # container args: "server" is the image's default command; with no
-          # DATABASE_URL set it runs the in-memory store — exactly what we want here
-          args: ["server"]
+          # container args: run the HTTP server, now backed by Postgres. --store is
+          # an explicit flag (not the PRISONER_STORE env) because a *set* flag always
+          # wins in viper — no ambiguity about which backend is selected.
+          args: ["server", "--store", "postgres"]
+          # DATABASE_URL for the postgres store — from the ESO-synced Secret (2d),
+          # never baked into the manifest or image.
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: prisoner-db
+                  key: DATABASE_URL
           # the TCP port the app listens on inside the container
           ports:
             - name: http
@@ -57,8 +66,10 @@ spec:
             # then check every 10s
             periodSeconds: 10
           # readiness probe = "is it ready to receive traffic?" If it fails, k8s
-          # stops routing traffic to this Pod but does NOT restart it. Same endpoint
-          # for now since there's no DB dependency yet (that changes in 2e).
+          # stops routing traffic to this Pod but does NOT restart it. Deliberately
+          # still /healthz (dependency-free): a DB outage won't pull the Pod from
+          # rotation — it serves 500s on data routes instead. A DB-aware /readyz
+          # would be a follow-up (the app has no such endpoint yet).
           readinessProbe:
             httpGet:
               path: /healthz

@@ -39,47 +39,48 @@ metadata:
     # healthy. Without it the controller's default check hits "/", which the backend
     # 404s — that TG would flap unhealthy and the ALB would 503 those requests.
     alb.ingress.kubernetes.io/healthcheck-path: /healthz
+    # Give the ALB two listeners: plain HTTP on 80 and TLS on 443. (Value is a
+    # JSON string — the controller parses it.)
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    # Redirect every HTTP:80 request to HTTPS:443 (301) — no plaintext serving.
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    # NOTE: no certificate-arn here on purpose. With a 443 listener and no explicit
+    # cert, the controller AUTO-DISCOVERS the ACM cert whose domain matches the
+    # Ingress `host:` (prisoner.adventurebrave.com) — that's the cert CDK issues in
+    # Step 3d. The controller's IAM policy already allows acm:ListCertificates /
+    # DescribeCertificate. If discovery ever misbehaves, paste the CertificateArn
+    # output here as alb.ingress.kubernetes.io/certificate-arn.
 spec:
   # Opts this Ingress into the "alb" IngressClass that the controller's Helm chart
   # registered. This is what tells Kubernetes WHICH controller owns this Ingress
   # (you could have nginx-ingress and alb side by side, distinguished by class).
   ingressClassName: alb
   rules:
-      # No `host:` key ⇒ this rule matches ANY hostname. We have no DNS yet, so we
-      # reach the app via the ALB's own generated *.elb.amazonaws.com name. In M3c
-      # we'll add `host: prisoner.adventurebrave.com` here, which is also the signal
-      # ExternalDNS reads to create the Route53 record.
-    - http:
+      # `host:` scopes this rule to one hostname AND is the signal ExternalDNS reads:
+      # it watches Ingresses, sees this host, and reconciles a Route53 A record (+ a
+      # companion TXT ownership record) pointing prisoner.adventurebrave.com at the
+      # ALB — automatically, on every redeploy, so we stop chasing new ALB names.
+      # Trade-off: with a host set, the raw *.elb.amazonaws.com name no longer matches
+      # this rule (the ALB returns its default 404); reach the app via the hostname.
+    - host: prisoner.adventurebrave.com
+      http:
         paths:
           # ── API paths → backend ──────────────────────────────────────────────
-          # pathType: Prefix matches by whole PATH SEGMENTS (split on "/"), not by
-          # raw string prefix. So `/players` matches `/players` and `/players/ian`
-          # but NOT `/playersfoo`; and `/play` does NOT accidentally swallow
-          # `/players` (different segment). The ALB controller orders rules by
-          # specificity — these longer prefixes are evaluated BEFORE the "/" catch-
-          # all below, so API traffic reaches the backend and everything else falls
-          # through to the SPA.
-          - path: /players
+          # A single prefix now covers the whole versioned API surface
+          # (/api/v1/players, /api/v1/history, /api/v1/play, and any future
+          # /api/v1/* endpoint) without further Ingress edits. Prefix matching
+          # is segment-based, so "/api" matches "/api/v1/..." too. The ALB
+          # controller orders rules by specificity — this is evaluated BEFORE
+          # the "/" catch-all below, so API traffic reaches the backend and
+          # everything else (including the SPA's own /players, /history,
+          # /play client-side routes) falls through to the frontend.
+          - path: /api
             pathType: Prefix
             backend:
               service:
                 name: prisoner-backend     # the backend Service (backend-service.yaml)
                 port:
                   number: 5001             # matches that Service's `port`
-          - path: /play
-            pathType: Prefix
-            backend:
-              service:
-                name: prisoner-backend
-                port:
-                  number: 5001
-          - path: /history
-            pathType: Prefix
-            backend:
-              service:
-                name: prisoner-backend
-                port:
-                  number: 5001
           # ── Everything else → frontend (the SPA) ─────────────────────────────
           # "/" Prefix is the catch-all: /, /index.html, /assets/*, and any client
           # route the browser requests that ISN'T an API path lands on nginx, which

@@ -66,34 +66,21 @@ spec:
       http:
         paths:
           # ── API paths → backend ──────────────────────────────────────────────
-          # pathType: Prefix matches by whole PATH SEGMENTS (split on "/"), not by
-          # raw string prefix. So `/players` matches `/players` and `/players/ian`
-          # but NOT `/playersfoo`; and `/play` does NOT accidentally swallow
-          # `/players` (different segment). The ALB controller orders rules by
-          # specificity — these longer prefixes are evaluated BEFORE the "/" catch-
-          # all below, so API traffic reaches the backend and everything else falls
-          # through to the SPA.
-          - path: /players
+          # A single prefix now covers the whole versioned API surface
+          # (/api/v1/players, /api/v1/history, /api/v1/play, and any future
+          # /api/v1/* endpoint) without further Ingress edits. Prefix matching
+          # is segment-based, so "/api" matches "/api/v1/..." too. The ALB
+          # controller orders rules by specificity — this is evaluated BEFORE
+          # the "/" catch-all below, so API traffic reaches the backend and
+          # everything else (including the SPA's own /players, /history,
+          # /play client-side routes) falls through to the frontend.
+          - path: /api
             pathType: Prefix
             backend:
               service:
                 name: prisoner-backend     # the backend Service (backend-service.yaml)
                 port:
                   number: 5001             # matches that Service's `port`
-          - path: /play
-            pathType: Prefix
-            backend:
-              service:
-                name: prisoner-backend
-                port:
-                  number: 5001
-          - path: /history
-            pathType: Prefix
-            backend:
-              service:
-                name: prisoner-backend
-                port:
-                  number: 5001
           # ── Everything else → frontend (the SPA) ─────────────────────────────
           # "/" Prefix is the catch-all: /, /index.html, /assets/*, and any client
           # route the browser requests that ISN'T an API path lands on nginx, which

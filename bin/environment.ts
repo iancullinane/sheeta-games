@@ -88,14 +88,16 @@ if (!appZone) {
   throw new Error("hosted zone adventurebrave.com not found in FoundationStack");
 }
 
-new Platform(app, "PlatformStack", {
-  ...config.platform,
-  vpc: foundation.vpc,
-  hostedZone: appZone,
-  dbSecurityGroup: database.dbSecurityGroup,
-  dbSecret: database.secret,
-  env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: process.env.CDK_DEFAULT_REGION,
-  },
-});
+if (config.platform) {
+  new Platform(app, "PlatformStack", {
+    ...config.platform,
+    vpc: foundation.vpc,
+    hostedZone: appZone,
+    dbSecurityGroup: database.dbSecurityGroup,
+    dbSecret: database.secret,
+    env: {
+      account: process.env.CDK_DEFAULT_ACCOUNT,
+      region: process.env.CDK_DEFAULT_REGION,
+    },
+  });
+}

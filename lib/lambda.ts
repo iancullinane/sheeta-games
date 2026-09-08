@@ -78,6 +78,7 @@ export class Lambda extends Stack {
         DATABASE_URL: databaseUrl,
         PRISONER_STORE: "postgres",
         PRISONER_LOG_FORMAT: "json",
+        HOME: "/tmp",
       },
       logGroup: new logs.LogGroup(this, "PrisonerFunctionLogs", {
         retention: logs.RetentionDays.ONE_DAY

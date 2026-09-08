@@ -2,7 +2,6 @@ import { CfnOutput, Fn, Stack, StackProps, Tags } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
-import * as ssm from "aws-cdk-lib/aws-ssm";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 

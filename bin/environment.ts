@@ -5,6 +5,7 @@ import { Foundation } from "../lib/foundation";
 import { Storage } from "../lib/storage";
 import { Database } from "../lib/database";
 import { Platform } from "../lib/platform";
+import { Lambda } from "../lib/lambda";
 import { loadConfig } from "../lib/config";
 
 const config = loadConfig();
@@ -99,5 +100,18 @@ if (config.platform) {
       account: process.env.CDK_DEFAULT_ACCOUNT,
       region: process.env.CDK_DEFAULT_REGION,
     },
+  });
+}
+
+if (config.lambda) {
+  new Lambda(app, "LambdaStack", {
+    ...config.lambda,
+    env: {
+      account: process.env.CDK_DEFAULT_ACCOUNT,
+      region: process.env.CDK_DEFAULT_REGION,
+    },
+    vpc: foundation.vpc,
+    dbSecurityGroup: database.dbSecurityGroup,
+    dbSecret: database.secret,
   });
 }
